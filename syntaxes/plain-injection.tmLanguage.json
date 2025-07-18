@@ -1,5 +1,5 @@
 {
-  "scopeName": "source.embedded.lang-injection",
+  "scopeName": "source.embedded.plain-injection",
   "patterns": [
     {
       "name": "meta.embedded.block.ts",

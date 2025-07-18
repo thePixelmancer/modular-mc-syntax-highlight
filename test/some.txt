@@ -7,4 +7,5 @@ function hello() {
 }
 :}
 
-And now inline: ::x + 2;
+
+And now inline: "::const x + 2";
