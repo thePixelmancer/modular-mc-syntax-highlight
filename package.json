@@ -24,7 +24,18 @@
     ],
     "grammars": [
       {
-        "language": "json",
+        "language": "plaintext",
+        "scopeName": "source.embedded.plain-injection",
+        "path": "./syntaxes/plain-injection.tmLanguage.json",
+        "injectTo": [
+          "text.plain",
+          "source.json"
+        ],
+        "embeddedLanguages": {
+          "ts.embedded": "typescript"
+        }
+      },
+      {
         "scopeName": "source.embedded.json-injection",
         "path": "./syntaxes/json-injection.tmLanguage.json",
         "injectTo": [
@@ -35,20 +46,12 @@
         }
       },
       {
-        "language": "plaintext",
-        "scopeName": "source.embedded.plain-injection",
-        "path": "./syntaxes/plain-injection.tmLanguage.json",
-        "injectTo": [
-          "text.plain"
-        ],
-        "embeddedLanguages": {
-          "ts.embedded": "typescript"
-        }
-      },
-      {
         "language": "lang",
         "scopeName": "source.embedded.lang-injection",
         "path": "./syntaxes/lang-injection.tmLanguage.json",
+        "injectTo": [
+          "source.lang"
+        ],
         "embeddedLanguages": {
           "ts.embedded": "typescript"
         }

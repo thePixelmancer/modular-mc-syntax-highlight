@@ -1,3 +1,4 @@
 {
-  "someKey": "::let x = 5 + 2;"
+  "aaa": "::const a",
+  ":: const aaa =5": "assad"
 }

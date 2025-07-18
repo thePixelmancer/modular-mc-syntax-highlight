@@ -1,23 +1,7 @@
 {
   "scopeName": "source.embedded.json-injection",
+  "injectionSelector": "L:source.json",
   "patterns": [
-    {
-      "name": "meta.embedded.block.ts",
-      "begin": "\\{ts:",
-      "beginCaptures": {
-        "0": { "name": "punctuation.section.embedded.begin.ts" }
-      },
-      "end": "\\s*:\\}",
-      "endCaptures": {
-        "0": { "name": "punctuation.section.embedded.end.ts" }
-      },
-      "contentName": "ts.embedded",
-      "patterns": [
-        {
-          "include": "source.ts"
-        }
-      ]
-    },
     {
       "name": "meta.embedded.inline.ts",
       "match": "(\"::)(.*?)(\")",
