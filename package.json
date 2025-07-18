@@ -1,0 +1,36 @@
+{
+  "name": "modular-mc-syntax",
+  "displayName": "ModularMC Syntax Highlighting",
+  "description": "Syntax highlighting for ModularMC regolith filter",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "lang",
+        "aliases": [
+          "Lang File"
+        ],
+        "extensions": [
+          ".lang"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "lang",
+        "scopeName": "source.lang",
+        "path": "./syntaxes/lang-injection.tmLanguage.json",
+        "embeddedLanguages": {
+          "ts.embedded": "typescript"
+        }
+      }
+    ]
+  }
+}

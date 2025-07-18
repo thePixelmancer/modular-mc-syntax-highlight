@@ -1,0 +1,11 @@
+Normal text
+
+{ts:
+let x = 5
+function hello() {
+  console.log(x)
+}
+:}
+
+
+And now inline: "::const x + 2";
