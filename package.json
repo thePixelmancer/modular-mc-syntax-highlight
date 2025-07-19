@@ -28,8 +28,7 @@
         "scopeName": "source.embedded.plain-injection",
         "path": "./syntaxes/plain-injection.tmLanguage.json",
         "injectTo": [
-          "text.plain",
-          "source.json"
+          "text.plain"
         ],
         "embeddedLanguages": {
           "ts.embedded": "typescript"
