@@ -170,7 +170,7 @@ Test files are provided in the `test/` directory:
 
 ## License
 
-[Add your license information here]
+This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.txt) file for details.
 
 ## Changelog
 
