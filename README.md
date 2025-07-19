@@ -1,65 +1,180 @@
-# modular-mc-syntax README
+# ModularMC Syntax Highlighting
 
-This is the README for your extension "modular-mc-syntax". After writing up a brief description, we recommend including the following sections.
+A Visual Studio Code extension that provides TypeScript syntax highlighting within various file types for the ModularMC regolith filter.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+This extension enhances your development experience by injecting TypeScript syntax highlighting into:
 
-For example if there is an image subfolder under your extension project workspace:
+- **JSON files** - Inline TypeScript within string values
+- **Plain text files** - Block and inline TypeScript code
+- **Lang files** (`.lang`) - Block TypeScript code for ModularMC
 
-\!\[feature X\]\(images/feature-x.png\)
+### Supported Syntax Patterns
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+#### 1. Inline TypeScript in JSON
+Highlight TypeScript code within JSON string values that start with `::`:
+
+```json
+{
+  "script": "::console.log('Hello, World!')",
+  "handler": "::function process(data) { return data.map(x => x * 2); }"
+}
+```
+
+#### 2. Block TypeScript in Plain Text and Lang Files
+Multi-line TypeScript code blocks using `{ts: ... :}` syntax:
+
+```plaintext
+Normal text content
+
+{ts:
+let x = 5;
+function hello() {
+  console.log(x);
+}
+:}
+
+More text content
+```
+
+#### 3. Inline TypeScript in Plain Text
+Inline TypeScript within quoted strings using `::` prefix:
+
+```plaintext
+Some text "::const greeting = 'Hello';" more text
+```
+
+## Installation
+
+### From Source
+1. Clone this repository
+2. Open in VS Code
+3. Press `F5` to launch the Extension Development Host
+4. Test the extension with the provided example files in the `test/` directory
+
+### From VSIX (when published)
+1. Download the `.vsix` file
+2. Open VS Code
+3. Go to Extensions view (`Ctrl+Shift+X`)
+4. Click the "..." menu and select "Install from VSIX..."
+5. Select the downloaded file
+
+## File Support
+
+| File Type | Extension | Syntax Support |
+|-----------|-----------|----------------|
+| JSON | `.json` | Inline TypeScript (`::...`) |
+| Plain Text | `.txt` | Block (`{ts: ... :}`) and Inline (`"::..."`) |
+| Lang Files | `.lang` | Block TypeScript (`{ts: ... :}`) |
+
+## Usage Examples
+
+### JSON Files
+```json
+{
+  "processor": "::data => data.filter(item => item.active)",
+  "validator": "::function validate(input) { return input.length > 0; }"
+}
+```
+
+### Lang Files
+```
+# ModularMC Lang File
+
+{ts:
+interface Player {
+  name: string;
+  level: number;
+}
+
+function processPlayer(player: Player) {
+  return `${player.name} (Level ${player.level})`;
+}
+:}
+```
+
+### Plain Text Files
+```
+Configuration notes:
+
+{ts:
+const config = {
+  apiUrl: 'https://api.example.com',
+  timeout: 5000
+};
+:}
+
+Processing instruction: "::item => item.id"
+```
+
+## Extension Architecture
+
+This extension uses TextMate grammar injection to provide syntax highlighting:
+
+- **Grammar Files**: Located in `syntaxes/` directory
+  - `json-injection.tmLanguage.json` - JSON string injection
+  - `plain-injection.tmLanguage.json` - Plain text injection  
+  - `lang-injection.tmLanguage.json` - Lang file injection
+
+- **Language Configuration**: `language-configuration.json` for `.lang` files
+
+- **Embedded Language**: All injections map to TypeScript (`typescript`) for consistent highlighting
+
+## Development
+
+### Project Structure
+```
+modular-mc-syntax-highlight/
+├── package.json                 # Extension manifest
+├── language-configuration.json  # Lang file configuration
+├── syntaxes/
+│   ├── json-injection.tmLanguage.json
+│   ├── plain-injection.tmLanguage.json
+│   └── lang-injection.tmLanguage.json
+└── test/
+    ├── some.json               # JSON examples
+    ├── some.txt                # Plain text examples
+    ├── some.lang               # Lang file examples
+    └── extension.test.js       # Tests
+```
+
+### Testing
+Test files are provided in the `test/` directory:
+- `some.json` - JSON with inline TypeScript
+- `some.txt` - Plain text with block and inline TypeScript
+- `some.lang` - Lang file with block TypeScript
+
+### Building
+1. Install dependencies: `npm install`
+2. Package extension: `vsce package`
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- Visual Studio Code 1.102.0 or higher
+- TypeScript language support (built into VS Code)
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- Inline TypeScript patterns must be properly quoted in JSON
+- Block syntax requires exact `{ts:` and `:}` delimiters
+- Some complex TypeScript syntax may not highlight perfectly within injected contexts
 
-## Release Notes
+## Contributing
 
-Users appreciate release notes as you update your extension.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test with the provided examples
+5. Submit a pull request
 
-### 1.0.0
+## License
 
-Initial release of ...
+[Add your license information here]
 
-### 1.0.1
+## Changelog
 
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+### 0.0.1
+- Initial release
+- TypeScript injection for JSON, plain text, and .lang files
+- Support for both inline and block syntax patterns
