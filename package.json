@@ -31,18 +31,6 @@
     "Programming Languages"
   ],
   "contributes": {
-    "languages": [
-      {
-        "id": "lang",
-        "aliases": [
-          "Lang File"
-        ],
-        "extensions": [
-          ".lang"
-        ],
-        "configuration": "./language-configuration.json"
-      }
-    ],
     "grammars": [
       {
         "language": "plaintext",
@@ -66,7 +54,6 @@
         }
       },
       {
-        "language": "lang",
         "scopeName": "source.embedded.lang-injection",
         "path": "./syntaxes/lang-injection.tmLanguage.json",
         "injectTo": [

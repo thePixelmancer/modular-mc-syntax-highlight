@@ -17,20 +17,6 @@
           "include": "source.ts"
         }
       ]
-    },
-    {
-      "name": "meta.embedded.inline.ts",
-      "match": "(\"::)(.*?)(\")",
-      "captures": {
-        "1": { "name": "punctuation.section.embedded.begin.ts comment" },
-        "2": { "name": "ts.embedded", "patterns": [{ "include": "source.ts" }] },
-        "3": { "name": "punctuation.section.embedded.end.ts comment" }
-      },
-       "patterns": [
-        {
-          "include": "source.ts"
-        }
-      ]
     }
   ]
 }

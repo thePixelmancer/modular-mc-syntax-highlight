@@ -1,7 +1,8 @@
 {
   "scopeName": "source.embedded.lang-injection",
+  "injectionSelector": "L:source.lang",
   "patterns": [
-    {
+     {
       "name": "meta.embedded.block.ts",
       "begin": "\\{ts:",
       "beginCaptures": {
@@ -11,6 +12,7 @@
       "endCaptures": {
         "0": { "name": "punctuation.section.embedded.end.ts" }
       },
+      "contentName": "ts.embedded",
       "patterns": [
         {
           "include": "source.ts"
