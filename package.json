@@ -2,7 +2,8 @@
   "name": "modular-mc-syntax",
   "displayName": "ModularMC Syntax Highlighting",
   "description": "Syntax highlighting for ModularMC regolith filter",
-  "version": "0.0.1",
+  "version": "0.1.1",
+  "icon": "icon.png",
   "publisher": "Pixelmancer",
   "author": {
     "name": "Pixelmancer"

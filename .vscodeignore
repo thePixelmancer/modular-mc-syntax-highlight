@@ -13,3 +13,4 @@ eslint.config.mjs
 jsconfig.json
 CHANGELOG.md
 node_modules/**
+# Keep icon.png - don't ignore it
