@@ -1,5 +1,4 @@
-{ts:
-const a = 5;
-const b = 4;
-return a+b
-:} 
+{
+  "aaa": "::const a = 6;",
+  "::const bbb = 5": "aaaa"
+}

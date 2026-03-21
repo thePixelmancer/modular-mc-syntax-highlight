@@ -11,11 +11,9 @@
       "endCaptures": {
         "0": { "name": "punctuation.section.embedded.end.ts" }
       },
-      "contentName": "ts.embedded",
+      "contentName": "source.ts",
       "patterns": [
-        {
-          "include": "source.ts"
-        }
+        { "include": "source.ts" }
       ]
     }
   ]

@@ -5,7 +5,8 @@ let x = 5
 function hello() {
   console.log(x)
 }
+return 24
 :}
 
 
-And now inline: "::const x + 2";
+And now inline: "::const x + 2" shouldnt work

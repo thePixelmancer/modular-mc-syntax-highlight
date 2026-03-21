@@ -8,4 +8,4 @@ function hello() {
 :}
 
 
-And now inline: "::const x + 2";
+And now inline: "::const x + 2"; shouldnt work
