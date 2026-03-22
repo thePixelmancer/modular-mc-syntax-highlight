@@ -1,8 +1,8 @@
 {
   "name": "modular-mc-syntax",
-  "displayName": "ModularMC Syntax Highlighting",
-  "description": "Syntax highlighting for ModularMC regolith filter",
-  "version": "0.1.2",
+  "displayName": "Modular MC",
+  "description": "Features for the ModularMC regolith filter",
+  "version": "0.2.0",
   "icon": "icon.png",
   "publisher": "Pixelmancer",
   "author": {
@@ -26,12 +26,32 @@
     "language-injection"
   ],
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Programming Languages"
   ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "compile": "tsc"
+  },
+  "activationEvents": [
+    "onLanguage:json",
+    "onLanguage:jsonc",
+    "onLanguage:plaintext"
+  ],
+  "devDependencies": {
+    "@types/node": "^18.19.130",
+    "@types/vscode": "^1.100.0",
+    "typescript": "^5.9.3"
+  },
   "contributes": {
+    "snippets": [
+      {
+        "language": "typescript",
+        "path": "./snippets/map.code-snippets"
+      }
+    ],
     "grammars": [
       {
         "scopeName": "source.embedded.plain-injection",

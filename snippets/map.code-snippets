@@ -1,0 +1,67 @@
+{
+  "ModularMC MAP": {
+    "prefix": "map",
+    "scope": "typescript",
+    "body": ["export const MAP = [", "\t$0", "];"],
+    "description": "ModularMC MAP array",
+  },
+  "ModularMC SCRIPTS": {
+    "prefix": "scripts",
+    "scope": "typescript",
+    "body": ["export const SCRIPTS = [", "\t\"$0\"", "];"],
+    "description": "ModularMC SCRIPTS array",
+  },
+  "ModularMC MAP + SCRIPTS": {
+    "prefix": "mapscripts",
+    "scope": "typescript",
+    "body": ["export const MAP = [", "\t$0", "];", "", "export const SCRIPTS = [", "\t\"$1\"", "];"],
+    "description": "ModularMC MAP and SCRIPTS arrays",
+  },
+  "ModularMC MAP entry (template)": {
+    "prefix": "mapentry",
+    "scope": "typescript",
+    "body": ["{", "\tsource: \"$1\",", "\ttarget: \"$2\",", "\t${3|jsonTemplate,textTemplate|}: true,", "\tscope: {", "\t\t$0", "\t},", "},"],
+    "description": "MAP entry with template and scope",
+  },
+  "ModularMC MAP entry (simple)": {
+    "prefix": "mapentrysimple",
+    "scope": "typescript",
+    "body": ["{", "\tsource: \"$1\",", "\ttarget: \"$2\",", "},"],
+    "description": "Simple MAP entry",
+  },
+  "ModularMC MAP entry (with conflict)": {
+    "prefix": "mapentryconflict",
+    "scope": "typescript",
+    "body": ["{", "\tsource: \"$1\",", "\ttarget: \"$2\",", "\tonConflict: \"${3|merge,appendEnd,appendStart,overwrite,skip,stop|}\",", "},"],
+    "description": "MAP entry with onConflict",
+  },
+  "ModularMC MAP entry (full)": {
+    "prefix": "mapentryfull",
+    "scope": "typescript",
+    "body": [
+      "{",
+      "\tsource: \"$1\",",
+      "\ttarget: \"$2\",",
+      "\t${3|jsonTemplate,textTemplate|}: true,",
+      "\tonConflict: \"${4|merge,appendEnd,appendStart,overwrite,skip,stop|}\",",
+      "\tfileType: \"$5\",",
+      "\tscope: {",
+      "\t\t$0",
+      "\t},",
+      "},",
+    ],
+    "description": "MAP entry with all fields",
+  },
+  "ModularMC onConflict": {
+    "prefix": "onConflict",
+    "scope": "typescript",
+    "body": ["onConflict: \"${1|merge,appendEnd,appendStart,overwrite,skip,stop|}\","],
+    "description": "onConflict field",
+  },
+  "ModularMC fileType": {
+    "prefix": "fileType",
+    "scope": "typescript",
+    "body": ["fileType: \"${1|json,text|}\","],
+    "description": "fileType override field",
+  },
+}
