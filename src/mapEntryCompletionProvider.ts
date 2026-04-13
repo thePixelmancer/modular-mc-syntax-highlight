@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { resolveAutoTarget } from "./autoMapResolver";
+import { getSourceValueForEntry } from "./utils";
 
 const TARGET_VALUES = [
   { label: ":autoFlat", detail: "Flatten matched files into their pack root" },
@@ -65,6 +66,7 @@ const MAP_ENTRY_FIELDS = [
   },
 ];
 
+// Sources that almost always use a specific onConflict strategy
 const MERGE_SOURCES = [
   "item_texture.json",
   "terrain_texture.json",
@@ -81,6 +83,7 @@ export class MapEntryCompletionProvider implements vscode.CompletionItemProvider
     const lineText = document.lineAt(position).text;
     const textBeforeCursor = lineText.slice(0, position.character);
 
+    // Field value completions — only when cursor is inside a string value
     if (isInsideStringValue(textBeforeCursor)) {
       if (/target\s*:\s*["'][^"']*$/.test(textBeforeCursor)) {
         const sourceFile = getSourceValueForEntry(document, position.line);
@@ -94,9 +97,7 @@ export class MapEntryCompletionProvider implements vscode.CompletionItemProvider
             );
             if (resolved) {
               item.detail = resolved;
-              item.documentation = new vscode.MarkdownString(
-                `Resolves to \`${resolved}\``
-              );
+              item.documentation = new vscode.MarkdownString(`Resolves to \`${resolved}\``);
             }
           }
           return item;
@@ -122,6 +123,7 @@ export class MapEntryCompletionProvider implements vscode.CompletionItemProvider
       return;
     }
 
+    // Field name completions — when inside a MAP entry object
     if (isInsideMapEntry(document, position)) {
       const existingFields = getExistingFields(document, position.line);
       return MAP_ENTRY_FIELDS
@@ -147,18 +149,19 @@ export class AutoTargetHoverProvider implements vscode.HoverProvider {
 
     const lineText = document.lineAt(position).text;
 
-    // Check if hovering over :auto or :autoFlat in a target line
     const targetMatch = lineText.match(/target\s*:\s*["'](:auto(?:Flat)?)["']/);
     if (!targetMatch) return null;
 
     const keyword = targetMatch[1] as ":auto" | ":autoFlat";
     const keywordStart = lineText.indexOf(keyword);
     const keywordEnd = keywordStart + keyword.length;
-    const hoverRange = new vscode.Range(position.line, keywordStart, position.line, keywordEnd);
 
+    // Only show hover when cursor is actually over the keyword
     if (position.character < keywordStart || position.character > keywordEnd) return null;
 
+    const hoverRange = new vscode.Range(position.line, keywordStart, position.line, keywordEnd);
     const sourceFile = getSourceValueForEntry(document, position.line);
+
     if (!sourceFile) {
       return new vscode.Hover(
         new vscode.MarkdownString(`**${keyword}**\n\nNo \`source\` found in this entry.`),
@@ -177,9 +180,7 @@ export class AutoTargetHoverProvider implements vscode.HoverProvider {
     }
 
     return new vscode.Hover(
-      new vscode.MarkdownString(
-        `**${keyword}** → \`${resolved}\``
-      ),
+      new vscode.MarkdownString(`**${keyword}** → \`${resolved}\``),
       hoverRange
     );
   }
@@ -197,35 +198,11 @@ function tryResolveAuto(
   }
 }
 
-// Walk back from current line to find source value in the same entry
-function getSourceValueForEntry(
-  document: vscode.TextDocument,
-  currentLine: number
-): string | null {
-  let braceDepth = 0;
-  let entryStart = currentLine;
-
-  for (let i = currentLine; i >= 0; i--) {
-    const line = document.lineAt(i).text;
-    for (let c = line.length - 1; c >= 0; c--) {
-      if (line[c] === "}") braceDepth++;
-      if (line[c] === "{") {
-        if (braceDepth === 0) { entryStart = i; break; }
-        braceDepth--;
-      }
-    }
-    if (entryStart !== currentLine) break;
-  }
-
-  for (let i = entryStart; i <= currentLine + 5; i++) {
-    if (i >= document.lineCount) break;
-    const match = document.lineAt(i).text.match(/source\s*:\s*["']([^"']+)["']/);
-    if (match) return match[1];
-  }
-
-  return null;
-}
-
+/**
+ * Checks whether the cursor is inside a MAP array entry object `{ }`,
+ * not inside a nested object like `scope: { }`.
+ * Uses brace/bracket depth tracking to distinguish entry-level from nested.
+ */
 function isInsideMapEntry(
   document: vscode.TextDocument,
   position: vscode.Position
@@ -251,39 +228,18 @@ function isInsideMapEntry(
   return false;
 }
 
+/**
+ * Scans the current MAP entry to collect which fields are already present,
+ * so we can filter them out from completion suggestions.
+ */
 function getExistingFields(
   document: vscode.TextDocument,
   currentLine: number
 ): Set<string> {
   const fields = new Set<string>();
-  let braceDepth = 0;
-  let entryStart = currentLine;
 
-  for (let i = currentLine; i >= 0; i--) {
-    const line = document.lineAt(i).text;
-    for (let c = line.length - 1; c >= 0; c--) {
-      if (line[c] === "}") braceDepth++;
-      if (line[c] === "{") {
-        if (braceDepth === 0) { entryStart = i; break; }
-        braceDepth--;
-      }
-    }
-    if (entryStart !== currentLine) break;
-  }
-
-  braceDepth = 0;
-  let entryEnd = currentLine;
-  for (let i = entryStart; i < document.lineCount; i++) {
-    const line = document.lineAt(i).text;
-    for (const ch of line) {
-      if (ch === "{") braceDepth++;
-      if (ch === "}") {
-        braceDepth--;
-        if (braceDepth === 0) { entryEnd = i; break; }
-      }
-    }
-    if (entryEnd !== currentLine) break;
-  }
+  const entryStart = findEntryStart(document, currentLine);
+  const entryEnd = findEntryEnd(document, entryStart, currentLine);
 
   for (let i = entryStart; i <= entryEnd; i++) {
     const match = document.lineAt(i).text.match(
@@ -295,26 +251,18 @@ function getExistingFields(
   return fields;
 }
 
+/**
+ * Suggests the most appropriate onConflict value based on the source file:
+ *   - .lang files → "appendEnd"
+ *   - known merge targets (item_texture, terrain_texture, sound_definitions) → "merge"
+ */
 function getSuggestedConflict(
   document: vscode.TextDocument,
   currentLine: number
 ): string | null {
-  let braceDepth = 0;
-  let entryStart = currentLine;
+  const entryStart = findEntryStart(document, currentLine);
 
-  for (let i = currentLine; i >= 0; i--) {
-    const line = document.lineAt(i).text;
-    for (let c = line.length - 1; c >= 0; c--) {
-      if (line[c] === "}") braceDepth++;
-      if (line[c] === "{") {
-        if (braceDepth === 0) { entryStart = i; break; }
-        braceDepth--;
-      }
-    }
-    if (i === entryStart && i !== currentLine) break;
-  }
-
-  for (let i = entryStart; i <= currentLine + 5; i++) {
+  for (let i = entryStart; i <= entryStart + 10; i++) {
     if (i >= document.lineCount) break;
     const match = document.lineAt(i).text.match(/source\s*:\s*["']([^"']+)["']/);
     if (!match) continue;
@@ -326,6 +274,45 @@ function getSuggestedConflict(
   return null;
 }
 
+/**
+ * Walks backwards from currentLine to find the line containing
+ * the opening `{` of the nearest enclosing MAP entry.
+ */
+function findEntryStart(document: vscode.TextDocument, currentLine: number): number {
+  let braceDepth = 0;
+
+  for (let i = currentLine; i >= 0; i--) {
+    const line = document.lineAt(i).text;
+    for (let c = line.length - 1; c >= 0; c--) {
+      if (line[c] === "}") braceDepth++;
+      if (line[c] === "{") {
+        if (braceDepth === 0) return i;
+        braceDepth--;
+      }
+    }
+  }
+  return currentLine;
+}
+
+/**
+ * Walks forwards from entryStart to find the line containing
+ * the closing `}` of the entry.
+ */
+function findEntryEnd(document: vscode.TextDocument, entryStart: number, fallback: number): number {
+  let braceDepth = 0;
+
+  for (let i = entryStart; i < document.lineCount; i++) {
+    for (const ch of document.lineAt(i).text) {
+      if (ch === "{") braceDepth++;
+      if (ch === "}") {
+        braceDepth--;
+        if (braceDepth === 0) return i;
+      }
+    }
+  }
+  return fallback;
+}
+
 function makeItem(label: string, detail: string): vscode.CompletionItem {
   const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.EnumMember);
   item.detail = detail;
@@ -333,6 +320,7 @@ function makeItem(label: string, detail: string): vscode.CompletionItem {
   return item;
 }
 
+/** Returns true if the cursor is inside an odd number of quotes (i.e. inside a string). */
 function isInsideStringValue(textBeforeCursor: string): boolean {
   const quotes = textBeforeCursor.match(/(?<!\\)["']/g) ?? [];
   return quotes.length % 2 === 1;

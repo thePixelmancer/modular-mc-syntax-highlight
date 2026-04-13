@@ -1,0 +1,36 @@
+{
+	"format_version": "1.21.0",
+	"minecraft:item": {
+		"description": {
+			// Ctrl+Space after "::" → suggests: id, displayName, damage, durability, cooldown, repairItem, tags
+			// Ctrl+Click on any variable → jumps to scope in _map.ts
+			"identifier": "::id",
+			"name": "::displayName"
+		},
+		"components": {
+			"minecraft:damage": {
+				"value": "::damage"
+			},
+			"minecraft:durability": {
+				"max_durability": "::durability"
+			},
+			"minecraft:cooldown": {
+				"category": "my_addon:weapons",
+				"duration": "::cooldown"
+			},
+			"minecraft:repairable": {
+				"repair_items": [
+					{
+						// Ctrl+Click on "repairItem" → jumps to repairItem in _map.ts scope
+						"items": "::repairItem",
+						"repair_amount": "q.max_durability * 0.25"
+					}
+				]
+			},
+			"minecraft:tags": {
+				// "tags" is an array — suggestion shows the full array value as detail
+				"tags": "::tags"
+			}
+		}
+	}
+}

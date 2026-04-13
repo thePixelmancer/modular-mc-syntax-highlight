@@ -1,8 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as ts from "typescript";
+import * as acorn from "acorn";
+import { matchesGlob } from "./utils";
 
-export async function findScopeForFile(filePath: string): Promise<Record<string, unknown> | null> {
+type Scope = Record<string, unknown>;
+
+export async function findScopeForFile(
+  filePath: string
+): Promise<Scope | null> {
   const mapFile = findMapFile(filePath);
   if (!mapFile) return null;
 
@@ -24,122 +29,140 @@ function findMapFile(filePath: string): string | null {
   return null;
 }
 
-function extractScopeForSource(mapFile: string, relativePath: string): Record<string, unknown> | null {
-  const source = fs.readFileSync(mapFile, "utf-8");
-  const sf = ts.createSourceFile(mapFile, source, ts.ScriptTarget.Latest, true);
+function parseFile(filePath: string): acorn.Program | null {
+  try {
+    const source = fs.readFileSync(filePath, "utf-8");
+    return acorn.parse(source, {
+      ecmaVersion: 2020,
+      sourceType: "module",
+    }) as acorn.Program;
+  } catch {
+    return null;
+  }
+}
 
-  const topLevelVars = extractTopLevelVars(sf, source);
-  const mapArray = findMapArray(sf);
+function extractScopeForSource(
+  mapFile: string,
+  relativePath: string
+): Scope | null {
+  const ast = parseFile(mapFile);
+  if (!ast) return null;
+
+  const topLevelVars = extractTopLevelVars(ast);
+  const mapArray = findMapArray(ast);
   if (!mapArray) return null;
 
   for (const element of mapArray.elements) {
-    // Unwrap .map() calls — e.g. ...staves.map((staff) => ({ source, scope }))
-    if (ts.isSpreadElement(element)) {
-      const inner = element.expression;
-      if (ts.isCallExpression(inner) && ts.isPropertyAccessExpression(inner.expression) && inner.expression.name.text === "map") {
-        const result = tryResolveMappedEntry(inner, relativePath, sf, source, topLevelVars);
-        if (result) return result;
-      }
+    if (!element) continue;
+
+    // Handle ...staves.map((staff) => ({...}))
+    if (element.type === "SpreadElement") {
+      const result = tryResolveMappedEntry(
+        element.argument,
+        relativePath,
+        topLevelVars
+      );
+      if (result) return result;
       continue;
     }
 
-    if (!ts.isObjectLiteralExpression(element)) continue;
+    if (element.type !== "ObjectExpression") continue;
 
-    const sourceVal = getStringProp(element, "source");
-    if (!sourceVal) continue;
+    const sourceVal = getStringProp(element as acorn.ObjectExpression, "source");
+    if (!sourceVal || !matchesGlob(relativePath, sourceVal)) continue;
 
-    if (matchesGlob(relativePath, sourceVal)) {
-      const scopeProp = getObjectProp(element, "scope");
-      if (!scopeProp) continue;
-      return evaluateObjectLiteral(scopeProp, sf, source, topLevelVars);
-    }
+    const scopeProp = getObjectProp(element as acorn.ObjectExpression, "scope");
+    if (!scopeProp) continue;
+
+    return evaluateObject(scopeProp, topLevelVars);
   }
 
   return null;
 }
 
-// Handles: ...staves.map((staff) => ({ source: "...", scope: { ...staff, ... } }))
+// Handles: staves.map((staff) => ({ source, scope }))
 function tryResolveMappedEntry(
-  callExpr: ts.CallExpression,
+  node: acorn.Node,
   relativePath: string,
-  sf: ts.SourceFile,
-  source: string,
-  topLevelVars: TopLevelVars,
-): Record<string, unknown> | null {
-  const [callbackArg] = callExpr.arguments;
-  if (!callbackArg) return null;
-  if (!ts.isArrowFunction(callbackArg) && !ts.isFunctionExpression(callbackArg)) return null;
+  topLevelVars: Record<string, unknown>
+): Scope | null {
+  if (node.type !== "CallExpression") return null;
+  const call = node as acorn.CallExpression;
 
-  // Get the param name — e.g. "staff"
-  const [param] = callbackArg.parameters;
-  if (!param || !ts.isIdentifier(param.name)) return null;
-  const paramName = param.name.text;
+  if (
+    call.callee.type !== "MemberExpression" ||
+    (call.callee as acorn.MemberExpression).property.type !== "Identifier" ||
+    ((call.callee as acorn.MemberExpression).property as acorn.Identifier).name !== "map"
+  ) return null;
 
-  // Get the array being mapped — e.g. "staves"
-  const arrayExpr = (callExpr.expression as ts.PropertyAccessExpression).expression;
-  const arrayName = ts.isIdentifier(arrayExpr) ? arrayExpr.text : null;
+  const [callback] = call.arguments;
+  if (!callback || (callback.type !== "ArrowFunctionExpression" && callback.type !== "FunctionExpression")) return null;
 
-  // Resolve first element of that array as the representative shape
+  const cb = callback as acorn.ArrowFunctionExpression;
+  const [param] = cb.params;
+  if (!param || param.type !== "Identifier") return null;
+  const paramName = (param as acorn.Identifier).name;
+
+  // Get array name being mapped — e.g. "staves"
+  const arrayExpr = (call.callee as acorn.MemberExpression).object;
+  const arrayName = arrayExpr.type === "Identifier" ? (arrayExpr as acorn.Identifier).name : null;
   const firstElement = arrayName ? resolveFirstArrayElement(arrayName, topLevelVars) : null;
 
-  // Evaluate the arrow body with the param bound to the first element
-  const body = callbackArg.body;
-  let returnedObj: ts.ObjectLiteralExpression | null = null;
+  const bindings: Record<string, unknown> = {
+    ...topLevelVars,
+    ...(firstElement ? { [paramName]: firstElement } : {}),
+  };
 
-  if (ts.isObjectLiteralExpression(body)) {
-    returnedObj = body;
-  } else if (ts.isParenthesizedExpression(body) && ts.isObjectLiteralExpression(body.expression)) {
-    returnedObj = body.expression;
-  } else if (ts.isBlock(body)) {
-    // Find return statement
-    for (const stmt of body.statements) {
-      if (ts.isReturnStatement(stmt) && stmt.expression) {
-        const expr = ts.isParenthesizedExpression(stmt.expression) ? stmt.expression.expression : stmt.expression;
-        if (ts.isObjectLiteralExpression(expr)) {
-          returnedObj = expr;
-          break;
-        }
+  // Get returned object from arrow body
+  let returnedObj: acorn.ObjectExpression | null = null;
+
+  if (cb.body.type === "ObjectExpression") {
+    returnedObj = cb.body as acorn.ObjectExpression;
+  } else if (cb.body.type === "BlockStatement") {
+    const block = cb.body as acorn.BlockStatement;
+    for (const stmt of block.body) {
+      if (stmt.type === "ReturnStatement" && (stmt as acorn.ReturnStatement).argument) {
+        const arg = (stmt as acorn.ReturnStatement).argument!;
+        returnedObj = arg.type === "ObjectExpression" ? arg as acorn.ObjectExpression : null;
+        break;
       }
     }
   }
 
   if (!returnedObj) return null;
 
-  // Check source prop matches
   const sourceVal = getStringProp(returnedObj, "source");
   if (!sourceVal || !matchesGlob(relativePath, sourceVal)) return null;
 
   const scopeProp = getObjectProp(returnedObj, "scope");
   if (!scopeProp) return null;
 
-  // Inject param binding so spreads like ...staff resolve to firstElement
-  const bindings: TopLevelVars = {
-    ...topLevelVars,
-    ...(firstElement ? { [paramName]: firstElement } : {}),
-  };
-
-  return evaluateObjectLiteral(scopeProp, sf, source, bindings);
+  return evaluateObject(scopeProp, bindings);
 }
 
 // ---- Top-level variable extraction ----
 
-type TopLevelVars = Record<string, unknown>;
+function extractTopLevelVars(ast: acorn.Program): Record<string, unknown> {
+  const vars: Record<string, unknown> = {};
 
-function extractTopLevelVars(sf: ts.SourceFile, source: string): TopLevelVars {
-  const vars: TopLevelVars = {};
+  for (const node of ast.body) {
+    if (node.type !== "VariableDeclaration" && node.type !== "ExportNamedDeclaration") continue;
 
-  for (const stmt of sf.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.declarationList.declarations) {
-      if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
-      const name = decl.name.text;
-      if (name === "MAP") continue; // skip MAP itself
+    const decl = node.type === "ExportNamedDeclaration"
+      ? (node as acorn.ExportNamedDeclaration).declaration
+      : node;
 
-      if (ts.isArrayLiteralExpression(decl.initializer)) {
-        // Store the raw node for later first-element resolution
-        vars[name] = { __arrayNode: decl.initializer, __sf: sf, __source: source };
+    if (!decl || decl.type !== "VariableDeclaration") continue;
+
+    for (const d of (decl as acorn.VariableDeclaration).declarations) {
+      if (d.id.type !== "Identifier" || !d.init) continue;
+      const name = (d.id as acorn.Identifier).name;
+      if (name === "MAP") continue;
+
+      if (d.init.type === "ArrayExpression") {
+        vars[name] = { __arrayNode: d.init as acorn.ArrayExpression };
       } else {
-        vars[name] = evaluateExpression(decl.initializer, sf, source, {});
+        vars[name] = evaluateExpr(d.init, {});
       }
     }
   }
@@ -147,129 +170,157 @@ function extractTopLevelVars(sf: ts.SourceFile, source: string): TopLevelVars {
   return vars;
 }
 
-function resolveFirstArrayElement(arrayName: string, topLevelVars: TopLevelVars): Record<string, unknown> | null {
+function resolveFirstArrayElement(
+  arrayName: string,
+  topLevelVars: Record<string, unknown>
+): Scope | null {
   const entry = topLevelVars[arrayName];
   if (!entry || typeof entry !== "object") return null;
 
-  const { __arrayNode, __sf, __source } = entry as {
-    __arrayNode: ts.ArrayLiteralExpression;
-    __sf: ts.SourceFile;
-    __source: string;
-  };
-
+  const { __arrayNode } = entry as { __arrayNode: acorn.ArrayExpression };
   if (!__arrayNode) return null;
 
   const first = __arrayNode.elements[0];
-  if (!first || !ts.isObjectLiteralExpression(first)) return null;
+  if (!first || first.type !== "ObjectExpression") return null;
 
-  return evaluateObjectLiteral(first, __sf, __source, {});
+  return evaluateObject(first as acorn.ObjectExpression, {});
 }
 
-// ---- Object/expression evaluation ----
+// ---- Evaluation ----
 
-function evaluateObjectLiteral(node: ts.ObjectLiteralExpression, sf: ts.SourceFile, source: string, bindings: TopLevelVars): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+function evaluateObject(
+  node: acorn.ObjectExpression,
+  bindings: Record<string, unknown>
+): Scope {
+  const result: Scope = {};
 
   for (const prop of node.properties) {
-    if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-      result[prop.name.text] = evaluateExpression(prop.initializer, sf, source, bindings);
-    } else if (ts.isSpreadAssignment(prop)) {
-      const spread = evaluateExpression(prop.expression, sf, source, bindings);
+    if (prop.type === "SpreadElement") {
+      const spread = evaluateExpr((prop as acorn.SpreadElement).argument, bindings);
       if (spread && typeof spread === "object" && !("__arrayNode" in (spread as object))) {
         Object.assign(result, spread);
       }
+      continue;
     }
+
+    if (prop.type !== "Property") continue;
+    const p = prop as acorn.Property;
+
+    const key =
+      p.key.type === "Identifier" ? (p.key as acorn.Identifier).name :
+      p.key.type === "Literal" ? String((p.key as acorn.Literal).value) :
+      null;
+
+    if (!key) continue;
+    result[key] = evaluateExpr(p.value as acorn.Expression, bindings);
   }
 
   return result;
 }
 
-function evaluateExpression(node: ts.Expression, sf: ts.SourceFile, source: string, bindings: TopLevelVars): unknown {
-  if (ts.isStringLiteral(node)) return node.text;
-  if (ts.isNumericLiteral(node)) return Number(node.text);
-  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
-  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
-  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+function evaluateExpr(node: acorn.Expression | acorn.Node, bindings: Record<string, unknown>): unknown {
+  switch (node.type) {
+    case "Literal":
+      return (node as acorn.Literal).value;
 
-  if (ts.isObjectLiteralExpression(node)) {
-    return evaluateObjectLiteral(node, sf, source, bindings);
-  }
+    case "ObjectExpression":
+      return evaluateObject(node as acorn.ObjectExpression, bindings);
 
-  if (ts.isArrayLiteralExpression(node)) {
-    return node.elements.map((el) => evaluateExpression(el, sf, source, bindings));
-  }
+    case "ArrayExpression":
+      return (node as acorn.ArrayExpression).elements.map((el) =>
+        el ? evaluateExpr(el, bindings) : null
+      );
 
-  // Identifier — check bindings first, then top-level vars
-  if (ts.isIdentifier(node)) {
-    const name = node.text;
-    if (name in bindings) return bindings[name];
-    return `<dynamic: ${name}>`;
-  }
-
-  // Property access — e.g. staff.spell
-  if (ts.isPropertyAccessExpression(node)) {
-    const obj = evaluateExpression(node.expression, sf, source, bindings);
-    if (obj && typeof obj === "object") {
-      return (obj as Record<string, unknown>)[node.name.text] ?? `<dynamic: ${node.getText(sf)}>`;
+    case "Identifier": {
+      const name = (node as acorn.Identifier).name;
+      if (name === "true") return true;
+      if (name === "false") return false;
+      if (name === "null") return null;
+      if (name in bindings) return bindings[name];
+      return `<dynamic: ${name}>`;
     }
-    return `<dynamic: ${node.getText(sf)}>`;
-  }
 
-  // Template literal — e.g. `${staff.prefix}_staff_of_${staff.spell}`
-  if (ts.isTemplateExpression(node)) {
-    let str = node.head.text;
-    for (const span of node.templateSpans) {
-      const val = evaluateExpression(span.expression, sf, source, bindings);
-      str += typeof val === "string" || typeof val === "number" ? val : `<dynamic>`;
-      str += span.literal.text;
+    case "MemberExpression": {
+      const mem = node as acorn.MemberExpression;
+      const obj = evaluateExpr(mem.object, bindings);
+      if (obj && typeof obj === "object" && !("__arrayNode" in (obj as object))) {
+        const key = mem.property.type === "Identifier"
+          ? (mem.property as acorn.Identifier).name
+          : String((mem.property as acorn.Literal).value);
+        return (obj as Record<string, unknown>)[key] ?? `<dynamic: ${key}>`;
+      }
+      return `<dynamic>`;
     }
-    return str;
-  }
 
-  // Call expression — can't evaluate, but label it
-  if (ts.isCallExpression(node)) {
-    return `<dynamic: ${node.expression.getText(sf)}(...)>`;
-  }
+    case "TemplateLiteral": {
+      const tl = node as acorn.TemplateLiteral;
+      let str = tl.quasis[0].value.cooked ?? "";
+      for (let i = 0; i < tl.expressions.length; i++) {
+        const val = evaluateExpr(tl.expressions[i], bindings);
+        str += typeof val === "string" || typeof val === "number" ? val : "<dynamic>";
+        str += tl.quasis[i + 1].value.cooked ?? "";
+      }
+      return str;
+    }
 
-  return `<dynamic: ${node.getText(sf)}>`;
+    case "CallExpression": {
+      const callee = (node as acorn.CallExpression).callee;
+      const name = callee.type === "Identifier"
+        ? (callee as acorn.Identifier).name
+        : callee.type === "MemberExpression"
+        ? (((callee as acorn.MemberExpression).property) as acorn.Identifier).name
+        : "fn";
+      return `<dynamic: ${name}(...)>`;
+    }
+
+    default:
+      return `<dynamic>`;
+  }
 }
 
 // ---- Helpers ----
 
-function findMapArray(sf: ts.SourceFile): ts.ArrayLiteralExpression | null {
-  for (const stmt of sf.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.declarationList.declarations) {
-      if (ts.isIdentifier(decl.name) && decl.name.text === "MAP" && decl.initializer && ts.isArrayLiteralExpression(decl.initializer)) {
-        return decl.initializer;
+function findMapArray(ast: acorn.Program): acorn.ArrayExpression | null {
+  for (const node of ast.body) {
+    const decl = node.type === "ExportNamedDeclaration"
+      ? (node as acorn.ExportNamedDeclaration).declaration
+      : node;
+
+    if (!decl || decl.type !== "VariableDeclaration") continue;
+
+    for (const d of (decl as acorn.VariableDeclaration).declarations) {
+      if (
+        d.id.type === "Identifier" &&
+        (d.id as acorn.Identifier).name === "MAP" &&
+        d.init?.type === "ArrayExpression"
+      ) {
+        return d.init as acorn.ArrayExpression;
       }
     }
   }
   return null;
 }
 
-function getStringProp(obj: ts.ObjectLiteralExpression, key: string): string | null {
+function getStringProp(obj: acorn.ObjectExpression, key: string): string | null {
   for (const prop of obj.properties) {
-    if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === key && ts.isStringLiteral(prop.initializer)) {
-      return prop.initializer.text;
+    if (prop.type !== "Property") continue;
+    const p = prop as acorn.Property;
+    const k = p.key.type === "Identifier" ? (p.key as acorn.Identifier).name : null;
+    if (k === key && p.value.type === "Literal") {
+      return String((p.value as acorn.Literal).value);
     }
   }
   return null;
 }
 
-function getObjectProp(obj: ts.ObjectLiteralExpression, key: string): ts.ObjectLiteralExpression | null {
+function getObjectProp(obj: acorn.ObjectExpression, key: string): acorn.ObjectExpression | null {
   for (const prop of obj.properties) {
-    if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === key && ts.isObjectLiteralExpression(prop.initializer)) {
-      return prop.initializer;
+    if (prop.type !== "Property") continue;
+    const p = prop as acorn.Property;
+    const k = p.key.type === "Identifier" ? (p.key as acorn.Identifier).name : null;
+    if (k === key && p.value.type === "ObjectExpression") {
+      return p.value as acorn.ObjectExpression;
     }
   }
   return null;
-}
-
-function matchesGlob(filePath: string, glob: string): boolean {
-  const escaped = glob
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "(.+)")
-    .replace(/\*/g, "([^/]+)");
-  return new RegExp(`^${escaped}$`).test(filePath);
 }

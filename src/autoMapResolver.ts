@@ -1,70 +1,80 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as ts from "typescript";
 
 type AutoMapEntry = string | { path: string; extension: string };
-type AutoMap = Record<string, AutoMapEntry>;
 
+// Ordered array to preserve definition order — first match wins
+type AutoMap = Array<[string, AutoMapEntry]>;
+
+/**
+ * Resolves what a `:auto` or `:autoFlat` target keyword evaluates to
+ * for a given source glob, by looking up the nearest `auto-map.ts` file.
+ *
+ * Returns the resolved output path, or null if no match is found.
+ *
+ * Examples:
+ *   "sword.item.json" + ":autoFlat" → "BP/items/@team/@proj/sword.item.json"
+ *   "entities/zombie.behavior.json" + ":auto" → "BP/entities/@team/@proj/entities/zombie.behavior.json"
+ */
 export function resolveAutoTarget(
-  sourceFile: string,
+  sourceGlob: string,
   targetKeyword: ":auto" | ":autoFlat",
-  mapFile: string
+  mapFilePath: string
 ): string | null {
-  const autoMap = findAndParseAutoMap(mapFile);
+  const autoMap = findAndParseAutoMap(mapFilePath);
   if (!autoMap) return null;
 
-  const fileName = path.basename(sourceFile);
-  const suffix = longestMatchingSuffix(fileName, Object.keys(autoMap));
-  if (!suffix) return null;
+  // Use just the filename for suffix matching — ignore leading path/glob segments
+  // e.g. "some/folder/**/*.rp_ac.json" → "*.rp_ac.json"
+  const fileName = path.basename(sourceGlob);
 
-  const entry = autoMap[suffix];
+  const match = firstMatchingSuffix(fileName, autoMap);
+  if (!match) return null;
+
+  const [suffix, entry] = match;
   const dirPath = typeof entry === "string" ? entry : entry.path;
   const customExt = typeof entry === "object" ? entry.extension : null;
 
-  // Build the final filename
-  const baseName = fileName.slice(0, fileName.length - suffix.length);
+  // Strip matched suffix from filename and apply the output extension
+  // e.g. "sword.item.json" with suffix ".item.json" → base "sword", ext ".item.json"
+  const baseName = fileName.startsWith("*") ? "*" : fileName.slice(0, fileName.length - suffix.length);
   const finalExt = customExt ?? suffix;
   const finalFileName = baseName + finalExt;
 
   if (targetKeyword === ":autoFlat") {
-    // Just drop the file into the resolved directory
+    // Drop file directly into the resolved directory, no subfolder structure
     return `${dirPath}/${finalFileName}`;
   } else {
-    // :auto — preserve subfolder structure relative to module dir
-    const moduleDir = path.dirname(mapFile);
-    const relativeDir = path.relative(
-      moduleDir,
-      path.dirname(path.resolve(moduleDir, sourceFile))
-    ).replace(/\\/g, "/");
+    // :auto — preserve subfolder path from the source glob
+    // e.g. source "entities/zombie.behavior.json" → keep "entities/" prefix
+    const sourceDir = path.dirname(sourceGlob);
+    const relativeDir = sourceDir !== "." ? sourceDir : "";
 
-    if (relativeDir && relativeDir !== ".") {
-      return `${dirPath}/${relativeDir}/${finalFileName}`;
-    }
-    return `${dirPath}/${finalFileName}`;
+    return relativeDir
+      ? `${dirPath}/${relativeDir}/${finalFileName}`
+      : `${dirPath}/${finalFileName}`;
   }
 }
 
-function longestMatchingSuffix(fileName: string, suffixes: string[]): string | null {
-  // Everything after the first dot is the suffix
-  const firstDot = fileName.indexOf(".");
-  if (firstDot === -1) return null;
-
-  // Try progressively shorter suffixes from the first dot onward
-  // e.g. zombie.behavior.json → try .behavior.json, then .json
-  let best: string | null = null;
-  for (const suffix of suffixes) {
+/**
+ * Returns the first [suffix, entry] pair whose suffix the filename ends with.
+ * First match wins — AUTO_MAP entries should be ordered most-specific first.
+ */
+function firstMatchingSuffix(fileName: string, autoMap: AutoMap): [string, AutoMapEntry] | null {
+  for (const [suffix, entry] of autoMap) {
     if (fileName.endsWith(suffix)) {
-      if (!best || suffix.length > best.length) {
-        best = suffix;
-      }
+      return [suffix, entry];
     }
   }
-  return best;
+  return null;
 }
 
-function findAndParseAutoMap(mapFile: string): AutoMap | null {
-  // Walk up from _map.ts location to find auto-map.ts
-  let dir = path.dirname(mapFile);
+/**
+ * Walks up the directory tree from the _map.ts location to find
+ * the nearest `auto-map.ts` file.
+ */
+function findAndParseAutoMap(mapFilePath: string): AutoMap | null {
+  let dir = path.dirname(mapFilePath);
   const root = path.parse(dir).root;
 
   while (dir !== root) {
@@ -77,58 +87,45 @@ function findAndParseAutoMap(mapFile: string): AutoMap | null {
   return null;
 }
 
+/**
+ * Parses an `auto-map.ts` file into an ordered [suffix, entry] array
+ * using regex — no AST parser needed since AUTO_MAP is always a flat object literal.
+ *
+ * Handles three value forms:
+ *   ".ext": "some/path"
+ *   ".ext": `some/path/${expr}`   (template literal — kept as-is, expressions not evaluated)
+ *   ".ext": { path: "some/path", extension: ".ext" }
+ */
 function parseAutoMapFile(filePath: string): AutoMap | null {
   const source = fs.readFileSync(filePath, "utf-8");
-  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
+  const result: AutoMap = [];
 
-  for (const stmt of sf.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.declarationList.declarations) {
-      if (
-        ts.isIdentifier(decl.name) &&
-        decl.name.text === "AUTO_MAP" &&
-        decl.initializer &&
-        ts.isObjectLiteralExpression(decl.initializer)
-      ) {
-        return extractAutoMap(decl.initializer, sf);
+  const entryPattern = /["']([^"']+)["']\s*:\s*(?:`([^`]*)`|"([^"]+)"|'([^']+)'|\{([^}]+)\})/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = entryPattern.exec(source)) !== null) {
+    const suffix = match[1];
+    const templateValue = match[2]; // backtick — used as-is, ${...} kept literally
+    const doubleValue   = match[3];
+    const singleValue   = match[4];
+    const objectValue   = match[5];
+
+    const simpleValue = templateValue ?? doubleValue ?? singleValue;
+
+    if (simpleValue !== undefined) {
+      result.push([suffix, simpleValue]);
+    } else if (objectValue !== undefined) {
+      const pathMatch = objectValue.match(/path\s*:\s*(?:`([^`]*)`|"([^"]+)"|'([^']+)')/);
+      const extMatch  = objectValue.match(/extension\s*:\s*["']([^"']+)["']/);
+      if (pathMatch) {
+        const entryPath = pathMatch[1] ?? pathMatch[2] ?? pathMatch[3];
+        result.push([suffix, {
+          path: entryPath,
+          extension: extMatch ? extMatch[1] : suffix,
+        }]);
       }
     }
   }
-  return null;
-}
 
-function extractAutoMap(node: ts.ObjectLiteralExpression, sf: ts.SourceFile): AutoMap {
-  const result: AutoMap = {};
-
-  for (const prop of node.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
-
-    const key = ts.isStringLiteral(prop.name)
-      ? prop.name.text
-      : ts.isIdentifier(prop.name)
-      ? prop.name.text
-      : null;
-
-    if (!key) continue;
-
-    if (ts.isStringLiteral(prop.initializer)) {
-      result[key] = prop.initializer.text;
-    } else if (ts.isObjectLiteralExpression(prop.initializer)) {
-      let entryPath = "";
-      let extension = "";
-      for (const p of prop.initializer.properties) {
-        if (
-          ts.isPropertyAssignment(p) &&
-          ts.isIdentifier(p.name) &&
-          ts.isStringLiteral(p.initializer)
-        ) {
-          if (p.name.text === "path") entryPath = p.initializer.text;
-          if (p.name.text === "extension") extension = p.initializer.text;
-        }
-      }
-      if (entryPath) result[key] = { path: entryPath, extension };
-    }
-  }
-
-  return result;
+  return result.length > 0 ? result : null;
 }

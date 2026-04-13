@@ -2,7 +2,7 @@
   "name": "modular-mc-syntax",
   "displayName": "Modular MC",
   "description": "Features for the ModularMC regolith filter",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "icon": "icon.png",
   "publisher": "Pixelmancer",
   "author": {
@@ -33,17 +33,25 @@
   ],
   "main": "./out/extension.js",
   "scripts": {
-    "compile": "tsc"
+    "compile": "tsc",
+    "bundle": "npx esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs"
+  },
+  "vsce": {
+    "dependencies": true
   },
   "activationEvents": [
     "onLanguage:json",
     "onLanguage:jsonc",
     "onLanguage:plaintext"
   ],
+  "dependencies": {
+    "acorn": "^8.0.0",
+    "acorn-walk": "^8.0.0"
+  },
   "devDependencies": {
-    "@types/node": "^18.19.130",
-    "@types/vscode": "^1.100.0",
-    "typescript": "^5.9.3"
+    "@types/acorn": "^4.0.6",
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.100.0"
   },
   "contributes": {
     "snippets": [
